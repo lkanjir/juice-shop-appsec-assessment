@@ -16,6 +16,8 @@ import { QuantityModel } from '../models/quantity'
 import { ProductModel } from '../models/product'
 import { BasketModel } from '../models/basket'
 import { WalletModel } from '../models/wallet'
+import { AddressModel } from '../models/address'
+import { CardModel } from '../models/card'
 import * as security from '../lib/insecurity'
 import * as utils from '../lib/utils'
 import * as db from '../data/mongodb'
@@ -32,11 +34,32 @@ interface Product {
 export function placeOrder () {
   return (req: Request, res: Response, next: NextFunction) => {
     const id = req.params.id
-    BasketModel.findOne({ where: { id }, include: [{ model: ProductModel, paranoid: false, as: 'Products' }] })
+    const customer = security.authenticatedUsers.from(req)
+    if (!customer?.data?.id) {
+      res.status(401).json({ status: 'error', message: 'Authentication required.' })
+      return
+    }
+
+    BasketModel.findOne({ where: { id, UserId: customer.data.id }, include: [{ model: ProductModel, paranoid: false, as: 'Products' }] })
       .then(async (basket: BasketModel | null) => {
         if (basket != null) {
-          const customer = security.authenticatedUsers.from(req)
-          const email = customer ? customer.data ? customer.data.email : '' : ''
+          const orderDetails = req.body.orderDetails
+          if (orderDetails?.addressId) {
+            const address = await AddressModel.findOne({ where: { id: orderDetails.addressId, UserId: customer.data.id } })
+            if (address == null) {
+              res.status(400).json({ status: 'error', message: 'Invalid order details.' })
+              return
+            }
+          }
+          if (orderDetails?.paymentId && orderDetails.paymentId !== 'wallet') {
+            const card = await CardModel.findOne({ where: { id: orderDetails.paymentId, UserId: customer.data.id } })
+            if (card == null) {
+              res.status(400).json({ status: 'error', message: 'Invalid order details.' })
+              return
+            }
+          }
+
+          const email = customer.data.email
           const orderId = security.hash(email).slice(0, 4) + '-' + utils.randomHexString(16)
           const pdfFile = `order_${orderId}.pdf`
           const { default: PDFDocument } = await import('pdfkit')
@@ -47,7 +70,7 @@ export function placeOrder () {
           fileWriter.on('finish', () => {
             void (async () => {
               void basket.update({ coupon: null })
-              await BasketItemModel.destroy({ where: { BasketId: id } })
+              await BasketItemModel.destroy({ where: { BasketId: basket.id } })
               res.json({ orderConfirmation: orderId })
             })()
           })
@@ -117,8 +140,8 @@ export function placeOrder () {
             price: 0,
             eta: 5
           }
-          if (req.body.orderDetails?.deliveryMethodId) {
-            const deliveryMethodFromModel = await DeliveryModel.findOne({ where: { id: req.body.orderDetails.deliveryMethodId } })
+          if (orderDetails?.deliveryMethodId) {
+            const deliveryMethodFromModel = await DeliveryModel.findOne({ where: { id: orderDetails.deliveryMethodId } })
             if (deliveryMethodFromModel != null) {
               deliveryMethod.deluxePrice = deliveryMethodFromModel.deluxePrice
               deliveryMethod.price = deliveryMethodFromModel.price
@@ -139,28 +162,26 @@ export function placeOrder () {
 
           challengeUtils.solveIf(challenges.negativeOrderChallenge, () => { return totalPrice < 0 })
 
-          if (req.body.UserId) {
-            if (req.body.orderDetails && req.body.orderDetails.paymentId === 'wallet') {
-              const wallet = await WalletModel.findOne({ where: { UserId: req.body.UserId } })
-              if ((wallet != null) && wallet.balance >= totalPrice) {
-                await WalletModel.decrement({ balance: totalPrice }, { where: { UserId: req.body.UserId } })
-              } else {
-                next(new Error('Insufficient wallet balance.'))
-                return
-              }
-            }
-            try {
-              await WalletModel.increment({ balance: totalPoints }, { where: { UserId: req.body.UserId } })
-            } catch (error: unknown) {
-              next(error)
+          if (orderDetails?.paymentId === 'wallet') {
+            const wallet = await WalletModel.findOne({ where: { UserId: customer.data.id } })
+            if ((wallet != null) && wallet.balance >= totalPrice) {
+              await WalletModel.decrement({ balance: totalPrice }, { where: { UserId: customer.data.id } })
+            } else {
+              next(new Error('Insufficient wallet balance.'))
               return
             }
+          }
+          try {
+            await WalletModel.increment({ balance: totalPoints }, { where: { UserId: customer.data.id } })
+          } catch (error: unknown) {
+            next(error)
+            return
           }
 
           db.ordersCollection.insert({
             promotionalAmount: discountAmount,
-            paymentId: req.body.orderDetails ? req.body.orderDetails.paymentId : null,
-            addressId: req.body.orderDetails ? req.body.orderDetails.addressId : null,
+            paymentId: orderDetails ? orderDetails.paymentId : null,
+            addressId: orderDetails ? orderDetails.addressId : null,
             orderId,
             delivered: false,
             email: (email ? email.replace(/[aeiou]/gi, '*') : undefined),
@@ -173,7 +194,7 @@ export function placeOrder () {
             doc.end()
           })
         } else {
-          next(new Error(`Basket with id=${id} does not exist.`))
+          res.status(404).json({ status: 'error', message: 'Basket not found.' })
         }
       }).catch((error: unknown) => {
         next(error)
