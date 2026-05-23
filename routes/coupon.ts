@@ -8,18 +8,24 @@ import { BasketModel } from '../models/basket'
 import * as security from '../lib/insecurity'
 
 export function applyCoupon () {
-  return async ({ params }: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = params.id
-      let coupon: string | undefined | null = params.coupon ? decodeURIComponent(params.coupon) : undefined
-      const discount = security.discountFromCoupon(coupon)
-      coupon = discount ? coupon : null
-
-      const basket = await BasketModel.findByPk(id)
-      if (!basket) {
-        next(new Error(`Basket with id=${id} does not exist.`))
+      const id = req.params.id
+      const user = security.authenticatedUsers.from(req)
+      if (!user?.data?.id) {
+        res.status(401).json({ status: 'error', message: 'Authentication required.' })
         return
       }
+
+      const basket = await BasketModel.findOne({ where: { id, UserId: user.data.id } })
+      if (basket == null) {
+        res.status(404).json({ status: 'error', message: 'Basket not found.' })
+        return
+      }
+
+      let coupon: string | undefined | null = req.params.coupon ? decodeURIComponent(req.params.coupon) : undefined
+      const discount = security.discountFromCoupon(coupon)
+      coupon = discount ? coupon : null
 
       await basket.update({ coupon: coupon?.toString() })
       if (discount) {
