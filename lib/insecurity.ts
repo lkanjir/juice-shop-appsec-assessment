@@ -32,7 +32,6 @@ const privateKeyBase64 = process.env.JWT_PRIVATE_KEY_BASE64;
 if (!privateKeyBase64) {
   throw new Error("JWT_PRIVATE_KEY_BASE64 is not configured");
 }
-
 const privateKey = Buffer.from(privateKeyBase64, "base64").toString("utf8");
 
 interface ResponseWithUser {
@@ -53,7 +52,6 @@ interface IAuthenticatedUsers {
   from: (req: Request) => ResponseWithUser | undefined;
   updateFrom: (req: Request, user: ResponseWithUser) => any;
 }
-
 const revokedTokens = new Set<string>();
 const normalizeToken = (token?: string) => (token ? utils.unquote(token) : undefined);
 const tokenFromRequest = (req: Request) => utils.jwtFrom(req) || req.cookies?.token;
@@ -64,16 +62,13 @@ const scryptOptions = {
   p: 1,
   maxmem: 256 * 1024 * 1024,
 };
-
 const passwordKeyLength = 64;
-
 export const hashPassword = (password: string) => {
   const salt = crypto.randomBytes(16).toString("hex");
   const derivedKey = crypto.scryptSync(password, salt, passwordKeyLength, scryptOptions).toString("hex");
 
   return `scrypt$${salt}$${derivedKey}`;
 };
-
 export const verifyPassword = (password: string, storedPassword?: string) => {
   if (!storedPassword) {
     return false;
@@ -328,6 +323,7 @@ export const updateAuthenticatedUsers = () => (req: Request, res: Response, next
   next();
 };
 
+// filtriranje za jwt
 export const sanitizeUserForJwt = (user: any) => {
   const source = user.data?.dataValues ?? user.data ?? user;
 
