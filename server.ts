@@ -439,8 +439,15 @@ function configureApp(app: ReturnType<typeof express>, seq: typeof sequelize) {
   /* Unauthorized users are not allowed to access B2B API */
   app.use("/b2b/v2", security.isAuthorized());
   /* Check if the quantity is available in stock and limit per user not exceeded, then add item to basket */
-  app.put("/api/BasketItems/:id", security.appendUserId(), utils.asyncHandler(basketItems.quantityCheckBeforeBasketItemUpdate()));
+  
+  
+  app.get('/api/BasketItems', utils.asyncHandler(basketItems.getBasketItems()))
+  //app.post('/api/BasketItems', utils.asyncHandler(basketItems.addBasketItem()))
   app.post("/api/BasketItems", security.appendUserId(), utils.asyncHandler(basketItems.quantityCheckBeforeBasketItemAddition()), utils.asyncHandler(basketItems.addBasketItem()));
+  app.get('/api/BasketItems/:id', utils.asyncHandler(basketItems.getBasketItem()))
+  //app.put('/api/BasketItems/:id', utils.asyncHandler(basketItems.updateBasketItem()))
+  app.put("/api/BasketItems/:id", security.appendUserId(), utils.asyncHandler(basketItems.quantityCheckBeforeBasketItemUpdate()));
+  app.delete('/api/BasketItems/:id', utils.asyncHandler(basketItems.deleteBasketItem()))
   /* Accounting users are allowed to check and update quantities */
   app.delete("/api/Quantitys/:id", security.denyAll());
   app.post("/api/Quantitys", security.denyAll());

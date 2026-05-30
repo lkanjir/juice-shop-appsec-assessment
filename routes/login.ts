@@ -30,38 +30,39 @@ export function login() {
       });
   }
 
-  return (req: Request, res: Response, next: NextFunction) => {
-    verifyPreLoginChallenges(req); // vuln-code-snippet hide-line
-    UserModel.findOne({ where: { email: req.body.email || "" } }) // vuln-code-snippet vuln-line loginAdminChallenge loginBenderChallenge loginJimChallenge
-      .then((authenticatedUser) => {
-        // vuln-code-snippet neutral-line loginAdminChallenge loginBenderChallenge loginJimChallenge
-        if (!authenticatedUser || !security.verifyPassword(req.body.password || "", authenticatedUser.password)) {
-          res.status(401).send(res.__("Invalid email or password."));
-          return;
-        }
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      verifyPreLoginChallenges(req) // vuln-code-snippet hide-line
 
-        const user = utils.queryResultToJson(authenticatedUser);
-        if (user.data?.id && user.data.totpSecret !== "") {
-          res.status(401).json({
-            status: "totp_token_required",
-            data: {
-              tmpToken: security.authorize({
-                userId: user.data.id,
-                type: "password_valid_needs_second_factor_token",
-              }),
-            },
-          });
-        } else if (user.data?.id) {
-          // @ts-expect-error FIXME some properties missing in user - vuln-code-snippet hide-line
-          afterLogin(user, res, next);
-        } else {
-          res.status(401).send(res.__("Invalid email or password."));
+      const email = typeof req.body.email === 'string' ? req.body.email : ''
+      const password = typeof req.body.password === 'string' ? req.body.password : ''
+      const authenticatedUser = await UserModel.findOne({
+        where: {
+          email,
+          password: security.hashPassword(password)
+          //password:securtiy.hash(password)
         }
       })
-      .catch((error: Error) => {
-        next(error);
-      });
-  };
+
+      if (authenticatedUser?.id && authenticatedUser.totpSecret !== '') {
+        res.status(401).json({
+          status: 'totp_token_required',
+          data: {
+            tmpToken: security.authorize({
+              userId: authenticatedUser.id,
+              type: 'password_valid_needs_second_factor_token'
+            })
+          }
+        })
+      } else if (authenticatedUser?.id) {
+        afterLogin({ data: authenticatedUser, bid: 0 }, res, next)
+      } else {
+        res.status(401).send(res.__('Invalid email or password.'))
+      }
+    } catch (error) {
+      next(error)
+    }
+  }
   // vuln-code-snippet end loginAdminChallenge loginBenderChallenge loginJimChallenge
 
   function verifyPreLoginChallenges(req: Request) {
