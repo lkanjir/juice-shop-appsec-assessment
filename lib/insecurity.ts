@@ -33,6 +33,11 @@ if (!privateKeyBase64) {
   throw new Error("JWT_PRIVATE_KEY_BASE64 is not configured");
 }
 const privateKey = Buffer.from(privateKeyBase64, "base64").toString("utf8");
+try {
+  crypto.createPrivateKey(privateKey);
+} catch {
+  throw new Error("JWT_PRIVATE_KEY_BASE64 must be a base64-encoded PEM private key");
+}
 
 interface ResponseWithUser {
   status?: string;

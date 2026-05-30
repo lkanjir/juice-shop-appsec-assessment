@@ -38,13 +38,13 @@ export function login() {
       const password = typeof req.body.password === 'string' ? req.body.password : ''
       const authenticatedUser = await UserModel.findOne({
         where: {
-          email,
-          password: security.hashPassword(password)
-          //password:securtiy.hash(password)
+          email
         }
       })
 
-      if (authenticatedUser?.id && authenticatedUser.totpSecret !== '') {
+      if (!authenticatedUser || !security.verifyPassword(password, authenticatedUser.password)) {
+        res.status(401).send(res.__('Invalid email or password.'))
+      } else if (authenticatedUser.totpSecret !== '') {
         res.status(401).json({
           status: 'totp_token_required',
           data: {
@@ -54,10 +54,8 @@ export function login() {
             })
           }
         })
-      } else if (authenticatedUser?.id) {
-        afterLogin({ data: authenticatedUser, bid: 0 }, res, next)
       } else {
-        res.status(401).send(res.__('Invalid email or password.'))
+        afterLogin({ data: authenticatedUser, bid: 0 }, res, next)
       }
     } catch (error) {
       next(error)
